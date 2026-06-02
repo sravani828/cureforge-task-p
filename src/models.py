@@ -1,7 +1,15 @@
+
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
-from typing import List
+from enum import Enum
+from typing import Tuple
+
+
+class CredentialClass(Enum):
+    ENGINEER = "ENGINEER"
+    SECURITY = "SECURITY"
+    OPERATIONS = "OPERATIONS"
+    COMPLIANCE = "COMPLIANCE"
 
 
 class GateState(Enum):
@@ -11,21 +19,30 @@ class GateState(Enum):
     TIMED_OUT = "TIMED_OUT"
 
 
-@dataclass(frozen=True)
+class GateDecision(Enum):
+    RELEASED = "RELEASED"
+    WITHHELD = "WITHHELD"
+    TIMED_OUT = "TIMED_OUT"
+
+
+@dataclass
 class Approval:
     approver_id: str
-    credential_class: str
-    timestamp: datetime
+    credential_class: CredentialClass
+    issued_at: datetime
     signature: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class ApprovalPolicy:
-    required_credentials: List[str]
+    required_credentials: Tuple[
+        CredentialClass,
+        ...
+    ]
     timeout_seconds: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class AuditRecord:
     timestamp: datetime
     event: str
@@ -34,9 +51,23 @@ class AuditRecord:
 
 
 @dataclass
-class GatedAction:
+class GateHandle:
     action_id: str
+    policy: ApprovalPolicy
     created_at: datetime
-    approvals: List[Approval] = field(default_factory=list)
-    audit_log: List[AuditRecord] = field(default_factory=list)
+    approvals: list[Approval] = field(
+        default_factory=list
+    )
+
+    _audit_log: Tuple[
+        AuditRecord,
+        ...
+    ] = field(
+        default_factory=tuple
+    )
+
     state: GateState = GateState.PENDING
+
+    @property
+    def audit_log(self):
+        return self._audit_log

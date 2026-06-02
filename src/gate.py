@@ -2,163 +2,192 @@
 from datetime import datetime
 
 from src.models import (
-    GatedAction,
     Approval,
     ApprovalPolicy,
+    GateDecision,
+    GateHandle,
     GateState
 )
 
-from src.policy import validate_approvals
-from src.verifier import verify_signature
-from src.audit import append_audit_record
+from src.audit import (
+    append_audit_record
+)
+
+from src.policy import (
+    validate_approvals
+)
+
+from src.verifier import (
+    verify_signature,
+    approval_is_fresh
+)
 
 
-def open_gate(action_id: str) -> GatedAction:
+def timeout_handler(
+    gate: GateHandle
+) -> None:
 
-    gated_action = GatedAction(
-        action_id=action_id,
+    # configurable no-op stub
+    return
+
+
+def open_gate(
+    action: str,
+    policy: ApprovalPolicy
+) -> GateHandle:
+
+    gate = GateHandle(
+        action_id=action,
+        policy=policy,
         created_at=datetime.utcnow()
     )
 
     append_audit_record(
-        gated_action,
+        gate,
         "gate_opened",
         None,
         GateState.PENDING
     )
 
-    return gated_action
+    return gate
 
 
 def submit_approval(
-    gated_action: GatedAction,
+    handle: GateHandle,
     approval: Approval
-) -> None:
+) -> GateState:
 
-    # Prevent processing after completion
-    if gated_action.state != GateState.PENDING:
+    if handle.state != GateState.PENDING:
 
         append_audit_record(
-            gated_action,
+            handle,
             "approval_rejected_closed_gate",
             approval.approver_id,
-            gated_action.state
+            handle.state
         )
 
-        return
-
-    # Verify signature
-    message = (
-        approval.approver_id +
-        approval.credential_class
-    )
+        return handle.state
 
     if not verify_signature(
-        message,
-        approval.signature
+        handle.action_id,
+        approval
     ):
 
-        gated_action.state = GateState.WITHHELD
+        handle.state = GateState.WITHHELD
 
         append_audit_record(
-            gated_action,
+            handle,
             "invalid_signature",
             approval.approver_id,
             GateState.WITHHELD
         )
 
-        return
+        return GateState.WITHHELD
 
-    # Prevent duplicate approvals
-    for existing in gated_action.approvals:
+    if not approval_is_fresh(
+        approval
+    ):
 
-        if existing.approver_id == approval.approver_id:
-
-            gated_action.state = GateState.WITHHELD
-
-            append_audit_record(
-                gated_action,
-                "duplicate_approval",
-                approval.approver_id,
-                GateState.WITHHELD
-            )
-
-            return
-
-    gated_action.approvals.append(approval)
-
-    append_audit_record(
-        gated_action,
-        "approval_received",
-        approval.approver_id,
-        GateState.PENDING
-    )
-
-
-def check_gate(
-    gated_action: GatedAction,
-    policy: ApprovalPolicy
-) -> GateState:
-
-    # Failure-closed:
-    # once withheld, never release
-    if gated_action.state == GateState.WITHHELD:
+        handle.state = GateState.WITHHELD
 
         append_audit_record(
-            gated_action,
-            "withheld_state_enforced",
-            None,
+            handle,
+            "stale_approval",
+            approval.approver_id,
             GateState.WITHHELD
         )
 
         return GateState.WITHHELD
 
-    elapsed_seconds = (
+    for existing in handle.approvals:
+
+        if (
+            existing.approver_id ==
+            approval.approver_id
+        ):
+
+            handle.state = GateState.WITHHELD
+
+            append_audit_record(
+                handle,
+                "duplicate_approval",
+                approval.approver_id,
+                GateState.WITHHELD
+            )
+
+            return GateState.WITHHELD
+
+    handle.approvals.append(
+        approval
+    )
+
+    append_audit_record(
+        handle,
+        "approval_received",
+        approval.approver_id,
+        GateState.PENDING
+    )
+
+    return GateState.PENDING
+
+
+def check(
+    handle: GateHandle
+) -> GateDecision:
+
+    if handle.state == GateState.WITHHELD:
+
+        return GateDecision.WITHHELD
+
+    elapsed = (
         datetime.utcnow() -
-        gated_action.created_at
-    ).seconds
+        handle.created_at
+    ).total_seconds()
 
-    # Timeout handling
-    if elapsed_seconds > policy.timeout_seconds:
+    if (
+        elapsed >
+        handle.policy.timeout_seconds
+    ):
 
-        gated_action.state = GateState.TIMED_OUT
+        handle.state = GateState.TIMED_OUT
+
+        timeout_handler(handle)
 
         append_audit_record(
-            gated_action,
+            handle,
             "gate_timed_out",
             None,
             GateState.TIMED_OUT
         )
 
-        return GateState.TIMED_OUT
+        return GateDecision.TIMED_OUT
 
-    # Policy validation
     valid = validate_approvals(
-        policy,
-        gated_action.approvals
+        handle.policy,
+        handle.approvals
     )
 
     if valid:
 
-        gated_action.state = GateState.RELEASED
+        handle.state = GateState.RELEASED
 
         append_audit_record(
-            gated_action,
+            handle,
             "gate_released",
             None,
             GateState.RELEASED
         )
 
-        return GateState.RELEASED
+        return GateDecision.RELEASED
 
-    gated_action.state = GateState.WITHHELD
+    handle.state = GateState.WITHHELD
 
     append_audit_record(
-        gated_action,
+        handle,
         "policy_validation_failed",
         None,
         GateState.WITHHELD
     )
 
-    return GateState.WITHHELD
+    return GateDecision.WITHHELD
 

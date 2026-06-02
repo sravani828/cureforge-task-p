@@ -1,14 +1,15 @@
+
 from datetime import datetime
 
 from src.models import (
     AuditRecord,
-    GateState,
-    GatedAction
+    GateHandle,
+    GateState
 )
 
 
 def append_audit_record(
-    gated_action: GatedAction,
+    gate: GateHandle,
     event: str,
     approver_id: str | None,
     result_state: GateState
@@ -21,4 +22,15 @@ def append_audit_record(
         result_state=result_state
     )
 
-    gated_action.audit_log.append(record)
+    gate._audit_log = (
+        gate.audit_log +
+        (record,)
+    )
+
+
+def query_audit_log(
+    gate: GateHandle
+):
+
+    return tuple(gate.audit_log)
+

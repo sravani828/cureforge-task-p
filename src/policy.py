@@ -1,4 +1,8 @@
-from src.models import ApprovalPolicy, Approval
+
+from src.models import (
+    Approval,
+    ApprovalPolicy
+)
 
 
 def validate_approvals(
@@ -6,27 +10,32 @@ def validate_approvals(
     approvals: list[Approval]
 ) -> bool:
 
-    required_credentials = set(policy.required_credentials)
+    required = set(
+        policy.required_credentials
+    )
 
-    received_credentials = set()
+    received = set()
 
     approvers = set()
 
     for approval in approvals:
 
-        # Prevent duplicate approver usage
         if approval.approver_id in approvers:
             return False
 
-        approvers.add(approval.approver_id)
+        approvers.add(
+            approval.approver_id
+        )
 
-        # Only count required credential classes
-        if approval.credential_class in required_credentials:
-            received_credentials.add(
+        if (
+            approval.credential_class
+            in required
+        ):
+            received.add(
                 approval.credential_class
             )
 
-    return required_credentials.issubset(
-        received_credentials
+    return required.issubset(
+        received
     )
-    
+

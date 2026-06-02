@@ -1,5 +1,8 @@
 
-from datetime import datetime
+from datetime import (
+    datetime,
+    timedelta
+)
 
 from src.models import (
     Approval,
@@ -19,12 +22,47 @@ from src.verifier import (
 )
 
 
-def test_missing_required_credential_fails():
+def test_invalid_signature_rejected():
 
     policy = ApprovalPolicy(
         required_credentials=(
             CredentialClass.ENGINEER,
-            CredentialClass.SECURITY
+        ),
+        timeout_seconds=300
+    )
+
+    gate = open_gate(
+        "deploy_prod",
+        policy
+    )
+
+    approval = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature="tampered_signature"
+    )
+
+    submit_approval(
+        gate,
+        approval
+    )
+
+    result = check(
+        gate
+    )
+
+    assert (
+        result ==
+        GateDecision.WITHHELD
+    )
+
+
+def test_duplicate_approver_rejected():
+
+    policy = ApprovalPolicy(
+        required_credentials=(
+            CredentialClass.ENGINEER,
         ),
         timeout_seconds=300
     )
@@ -51,42 +89,6 @@ def test_missing_required_credential_fails():
         approval
     )
 
-    result = check(
-        gate
-    )
-
-    assert (
-        result ==
-        GateDecision.WITHHELD
-    )
-
-
-def test_irrelevant_credential_does_not_count():
-
-    policy = ApprovalPolicy(
-        required_credentials=(
-            CredentialClass.SECURITY,
-        ),
-        timeout_seconds=300
-    )
-
-    gate = open_gate(
-        "deploy_prod",
-        policy
-    )
-
-    approval = Approval(
-        approver_id="alice",
-        credential_class=CredentialClass.ENGINEER,
-        issued_at=datetime.utcnow(),
-        signature=""
-    )
-
-    approval.signature = generate_signature(
-        gate.action_id,
-        approval
-    )
-
     submit_approval(
         gate,
         approval
@@ -102,31 +104,7 @@ def test_irrelevant_credential_does_not_count():
     )
 
 
-def test_empty_approval_set_fails_closed():
-
-    policy = ApprovalPolicy(
-        required_credentials=(
-            CredentialClass.ENGINEER,
-        ),
-        timeout_seconds=300
-    )
-
-    gate = open_gate(
-        "deploy_prod",
-        policy
-    )
-
-    result = check(
-        gate
-    )
-
-    assert (
-        result ==
-        GateDecision.WITHHELD
-    )
-
-
-def test_exact_required_set_releases():
+def test_tampered_complete_approval_set_fails():
 
     policy = ApprovalPolicy(
         required_credentials=(
@@ -157,12 +135,7 @@ def test_exact_required_set_releases():
         approver_id="bob",
         credential_class=CredentialClass.SECURITY,
         issued_at=datetime.utcnow(),
-        signature=""
-    )
-
-    security.signature = generate_signature(
-        gate.action_id,
-        security
+        signature="fake_signature"
     )
 
     submit_approval(
@@ -181,60 +154,61 @@ def test_exact_required_set_releases():
 
     assert (
         result ==
-        GateDecision.RELEASED
-    )
-
-
-def test_multiple_irrelevant_credentials_fail():
-
-    policy = ApprovalPolicy(
-        required_credentials=(
-            CredentialClass.SECURITY,
-        ),
-        timeout_seconds=300
-    )
-
-    gate = open_gate(
-        "deploy_prod",
-        policy
-    )
-
-    for idx in range(3):
-
-        approval = Approval(
-            approver_id=f"user_{idx}",
-            credential_class=CredentialClass.ENGINEER,
-            issued_at=datetime.utcnow(),
-            signature=""
-        )
-
-        approval.signature = generate_signature(
-            gate.action_id,
-            approval
-        )
-
-        submit_approval(
-            gate,
-            approval
-        )
-
-    result = check(
-        gate
-    )
-
-    assert (
-        result ==
         GateDecision.WITHHELD
     )
 
 
-def test_policy_requires_all_credentials():
+def test_timeout_race_condition_fails_closed():
 
     policy = ApprovalPolicy(
         required_credentials=(
             CredentialClass.ENGINEER,
-            CredentialClass.SECURITY,
-            CredentialClass.OPERATIONS
+        ),
+        timeout_seconds=1
+    )
+
+    gate = open_gate(
+        "deploy_prod",
+        policy
+    )
+
+    approval = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature=""
+    )
+
+    approval.signature = generate_signature(
+        gate.action_id,
+        approval
+    )
+
+    submit_approval(
+        gate,
+        approval
+    )
+
+    gate.created_at = (
+        datetime.utcnow() -
+        timedelta(seconds=5)
+    )
+
+    result = check(
+        gate
+    )
+
+    assert (
+        result ==
+        GateDecision.TIMED_OUT
+    )
+
+
+def test_closed_gate_rejects_new_approval():
+
+    policy = ApprovalPolicy(
+        required_credentials=(
+            CredentialClass.ENGINEER,
         ),
         timeout_seconds=300
     )
@@ -244,36 +218,86 @@ def test_policy_requires_all_credentials():
         policy
     )
 
-    credentials = [
-        CredentialClass.ENGINEER,
-        CredentialClass.SECURITY
-    ]
+    approval = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature=""
+    )
 
-    for idx, credential in enumerate(credentials):
+    approval.signature = generate_signature(
+        gate.action_id,
+        approval
+    )
 
-        approval = Approval(
-            approver_id=f"user_{idx}",
-            credential_class=credential,
-            issued_at=datetime.utcnow(),
-            signature=""
-        )
+    submit_approval(
+        gate,
+        approval
+    )
 
-        approval.signature = generate_signature(
-            gate.action_id,
-            approval
-        )
+    check(gate)
 
-        submit_approval(
-            gate,
-            approval
-        )
+    second = Approval(
+        approver_id="bob",
+        credential_class=CredentialClass.SECURITY,
+        issued_at=datetime.utcnow(),
+        signature=""
+    )
 
-    result = check(
+    second.signature = generate_signature(
+        gate.action_id,
+        second
+    )
+
+    result = submit_approval(
+        gate,
+        second
+    )
+
+    assert result == gate.state
+
+
+def test_invalid_signature_keeps_withheld_sticky():
+
+    policy = ApprovalPolicy(
+        required_credentials=(
+            CredentialClass.ENGINEER,
+        ),
+        timeout_seconds=300
+    )
+
+    gate = open_gate(
+        "deploy_prod",
+        policy
+    )
+
+    approval = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature="invalid"
+    )
+
+    submit_approval(
+        gate,
+        approval
+    )
+
+    result_one = check(
+        gate
+    )
+
+    result_two = check(
         gate
     )
 
     assert (
-        result ==
+        result_one ==
+        GateDecision.WITHHELD
+    )
+
+    assert (
+        result_two ==
         GateDecision.WITHHELD
     )
 

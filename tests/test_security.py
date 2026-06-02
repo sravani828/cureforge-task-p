@@ -1,89 +1,185 @@
-from datetime import datetime
+
+from datetime import (
+    datetime,
+    timedelta
+)
 
 from src.models import (
     Approval,
     ApprovalPolicy,
-    GateState
+    CredentialClass,
+    GateDecision
 )
 
 from src.gate import (
     open_gate,
     submit_approval,
-    check_gate
+    check
 )
 
-from src.verifier import generate_signature
+from src.verifier import (
+    generate_signature
+)
 
 
-def test_invalid_signature_rejected():
+def test_replay_attack_rejected():
 
     policy = ApprovalPolicy(
-        required_credentials=[
-            "ENGINEER"
-        ],
+        required_credentials=(
+            CredentialClass.ENGINEER,
+        ),
         timeout_seconds=300
     )
 
-    gate = open_gate("deploy")
-
-    approval = Approval(
-        approver_id="alice",
-        credential_class="ENGINEER",
-        timestamp=datetime.utcnow(),
-        signature="tampered_signature"
-    )
-
-    submit_approval(
-        gate,
-        approval
-    )
-
-    result = check_gate(
-        gate,
+    gate_one = open_gate(
+        "production_deploy",
         policy
-    )
-
-    assert result == GateState.WITHHELD
-
-
-def test_duplicate_approval_rejected():
-
-    policy = ApprovalPolicy(
-        required_credentials=[
-            "ENGINEER"
-        ],
-        timeout_seconds=300
-    )
-
-    gate = open_gate("deploy")
-
-    message = (
-        "alice" +
-        "ENGINEER"
     )
 
     approval = Approval(
         approver_id="alice",
-        credential_class="ENGINEER",
-        timestamp=datetime.utcnow(),
-        signature=generate_signature(
-            message
-        )
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature=""
     )
 
-    submit_approval(
-        gate,
+    approval.signature = generate_signature(
+        gate_one.action_id,
         approval
     )
 
     submit_approval(
-        gate,
+        gate_one,
         approval
     )
 
-    result = check_gate(
-        gate,
+    result_one = check(
+        gate_one
+    )
+
+    assert (
+        result_one ==
+        GateDecision.RELEASED
+    )
+
+    gate_two = open_gate(
+        "delete_database",
         policy
     )
 
-    assert result == GateState.WITHHELD
+    submit_approval(
+        gate_two,
+        approval
+    )
+
+    result_two = check(
+        gate_two
+    )
+
+    assert (
+        result_two ==
+        GateDecision.WITHHELD
+    )
+
+
+def test_same_class_approvals_fail_policy():
+
+    policy = ApprovalPolicy(
+        required_credentials=(
+            CredentialClass.ENGINEER,
+            CredentialClass.SECURITY
+        ),
+        timeout_seconds=300
+    )
+
+    gate = open_gate(
+        "deploy_prod",
+        policy
+    )
+
+    approval_one = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature=""
+    )
+
+    approval_one.signature = generate_signature(
+        gate.action_id,
+        approval_one
+    )
+
+    approval_two = Approval(
+        approver_id="bob",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=datetime.utcnow(),
+        signature=""
+    )
+
+    approval_two.signature = generate_signature(
+        gate.action_id,
+        approval_two
+    )
+
+    submit_approval(
+        gate,
+        approval_one
+    )
+
+    submit_approval(
+        gate,
+        approval_two
+    )
+
+    result = check(
+        gate
+    )
+
+    assert (
+        result ==
+        GateDecision.WITHHELD
+    )
+
+
+def test_stale_approval_rejected():
+
+    policy = ApprovalPolicy(
+        required_credentials=(
+            CredentialClass.ENGINEER,
+        ),
+        timeout_seconds=300
+    )
+
+    gate = open_gate(
+        "deploy_prod",
+        policy
+    )
+
+    approval = Approval(
+        approver_id="alice",
+        credential_class=CredentialClass.ENGINEER,
+        issued_at=(
+            datetime.utcnow() -
+            timedelta(hours=1)
+        ),
+        signature=""
+    )
+
+    approval.signature = generate_signature(
+        gate.action_id,
+        approval
+    )
+
+    submit_approval(
+        gate,
+        approval
+    )
+
+    result = check(
+        gate
+    )
+
+    assert (
+        result ==
+        GateDecision.WITHHELD
+    )
