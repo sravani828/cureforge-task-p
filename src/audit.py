@@ -22,9 +22,10 @@ def append_audit_record(
         result_state=result_state
     )
 
-    gate._audit_log = (
-        gate.audit_log +
-        (record,)
+    object.__setattr__(
+        gate,
+        "_audit_log",
+        gate.audit_log + (record,)
     )
 
 
@@ -32,5 +33,7 @@ def query_audit_log(
     gate: GateHandle
 ):
 
-    return tuple(gate.audit_log)
+    return tuple(
+        gate.audit_log
+    )
 
