@@ -33,6 +33,7 @@
 * Audit log converted to append-only tuple storage
 * Added immutable audit-log validation tests
 * Added audit query accessor
+* Added structural audit-log immutability enforcement preventing reassignment of the backing audit history
 
 ### 5. Contract Alignment
 
@@ -47,7 +48,7 @@
 
 ### 6. Expanded Test Coverage
 
-* Expanded suite to 22 automated tests
+* Expanded suite to 22+ automated tests
 * Added adversarial attack coverage
 * Added replay, timeout-race, tampering, and stale approval tests
 

@@ -19,16 +19,22 @@ The implementation focuses on:
 
 ---
 
+```md
 ## Features
 
 * Multi-party approval validation
 * HMAC SHA256 signature verification
 * Failure-closed security design
 * Duplicate approval prevention
+* Replay attack protection
+* Stale approval rejection
 * Timeout enforcement
-* Append-only audit logs
+* Append-only immutable audit logs
+* Structural audit-log immutability protection
 * Adversarial security tests
 * Pytest-based automated test suite
+```
+
 
 ---
 
@@ -106,15 +112,25 @@ Security protections include:
 
 ---
 
+```md
 ## Testing
 
 The project includes:
 
 * happy-path validation tests
 * invalid signature tests
+* replay attack rejection tests
 * duplicate approval attack tests
+* stale approval rejection tests
 * timeout tests
-* audit integrity tests
+* immutable audit-log tests
+* structural audit-log tampering protection tests
+* adversarial security validation tests
+
+Total automated tests:
+* 22 passing tests
+```
+
 
 ---
 
