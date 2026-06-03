@@ -19,7 +19,7 @@ The implementation focuses on:
 
 ---
 
-```md
+
 ## Features
 
 * Multi-party approval validation
@@ -33,7 +33,7 @@ The implementation focuses on:
 * Structural audit-log immutability protection
 * Adversarial security tests
 * Pytest-based automated test suite
-```
+
 
 
 ---
@@ -112,7 +112,7 @@ Security protections include:
 
 ---
 
-```md
+
 ## Testing
 
 The project includes:
@@ -129,7 +129,6 @@ The project includes:
 
 Total automated tests:
 * 22 passing tests
-```
 
 
 ---
